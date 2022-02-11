@@ -3,7 +3,6 @@ from dash import dcc
 from dash import html
 from dash.dependencies import Input, Output
 
-import requests
 import plotly.graph_objects as go
 import pandas as pd
 
@@ -33,7 +32,7 @@ server = app.server
 app.layout = html.Div(
     [
         html.H1(
-            'Immunization Dashboard',
+            'Dummy Dashboard',
             style={'text-align': 'center'}
         ),
         html.Div([
@@ -73,33 +72,41 @@ app.layout = html.Div(
     ]
 )
 
+application_train = pd.read_csv('input/' + 'application_train.csv')
+
+width_income_group = 20000
+width_income_group_k = int(width_income_group // 1000)
+max_income_group = 20
+application_train['income_group'] = application_train['AMT_INCOME_TOTAL'].astype(int) // width_income_group
+application_train['income_group'] = application_train['income_group'].apply(lambda x: min(x, max_income_group))
+
+fails = pd.DataFrame(application_train[application_train['TARGET'] == 1]['income_group'].value_counts().sort_index().rename('nb_loans'))
+fails['status'] = 'fail'
+success = pd.DataFrame(application_train[application_train['TARGET'] == 0]['income_group'].value_counts().sort_index().rename('nb_loans'))
+success['status'] = 'success'
+to_plot = pd.concat([fails, success])
+
+
+
+labels = [str(width_income_group_k * x) + 'k-' + str(width_income_group_k * (x+1)) + 'k' for x in to_plot.index]
+max_income = labels[-1]
+labels = [((labels[-1].split('-')[0] + '+') if l == max_income else l)for l in labels]
+to_plot.index = labels
+to_plot = to_plot.reset_index().rename(columns={'index': 'income_group'})
+
 
 @app.callback(
     Output('bargraph', 'figure'),
-    [Input('year_selection', 'value')]
-)
-def retrieve_revenue(year):
-    df_country = df['country'].head(20)
-    df_year = df[year].head(20)
-    datapoints = {'data': [go.Bar(x=df_country, y=df_year)], 'layout': dict(yaxis={'title': 'Vaccination %'}, )}
-    return datapoints
-
-
-@app.callback(
-    Output('linegraph', 'figure'),
     [Input('country_selection', 'value')]
 )
-def retrieve_revenue(country):
-    df_country = df[df['country'] == country]
-    df_country = df_country.T.drop('country', axis=0)
-    df_country.columns = ['rate']
-    df_country = df_country.rename(columns={df_country.columns[0]: 'rate'})
-    years = list(df_country.index)
-    rates = list(df_country['rate'].values)
-    datapoints = {'data': [go.Scatter(x=years, y=rates, mode="lines+markers")],
-                  'layout': dict(yaxis=dict(range=[0, 100]))}
-    return datapoints
 
+def test_chart(country):
+    fail = to_plot[to_plot['status'] == 'fail']
+    success = to_plot[to_plot['status'] == 'success']
+    datapoints = {'data': [go.Bar(x=fail['income_group'], y=fail['nb_loans']), go.Bar(x=success['income_group'], y=success['nb_loans'])],
+                  'layout': dict(legend_title_text="Status")}
+    return datapoints
+#%%
 
 if __name__ == '__main__':
     app.run_server(debug=True)
