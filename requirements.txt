@@ -30,13 +30,13 @@ imbalanced-learn==0.9.0
 imblearn==0.0
 importlib-resources==5.4.0
 ipykernel==6.8.0
-ipython==8.0.1
+ipython~=7.27.0
 ipython-genutils==0.2.0
 ipywidgets==7.6.5
 itsdangerous==2.0.1
 jedi==0.18.1
 Jinja2==3.0.3
-joblib==1.1.0
+joblib~=1.0.1
 jsonschema==4.4.0
 jupyter==1.0.0
 jupyter-client==7.1.2
@@ -83,7 +83,7 @@ QtPy==2.0.1
 requests==2.26.0
 scikit-learn==1.0.2
 scipy==1.7.3
-seaborn==0.11.2
+seaborn~=0.11.1
 Send2Trash==1.8.0
 six==1.14.0
 stack-data==0.1.4
@@ -101,3 +101,5 @@ webencodings==0.5.1
 Werkzeug==2.0.2
 widgetsnbextension==3.5.2
 zipp==3.7.0
+
+tqdm~=4.62.2

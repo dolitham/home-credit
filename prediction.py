@@ -1,14 +1,21 @@
-from kaggle_kernel import preprocess_data
-import seaborn as sns
+import pickle
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from kaggle_kernel import timer
+import seaborn as sns
 from imblearn.over_sampling import SMOTE
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, recall_score, confusion_matrix, fbeta_score
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, recall_score, confusion_matrix
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.decomposition import PCA
+from kaggle_kernel import preprocess_data
+from kaggle_kernel import timer
+import warnings
+
+warnings.simplefilter(action='ignore', category=FutureWarning)
+pd.set_option('mode.chained_assignment', None)
 
 # %%
 
@@ -28,12 +35,14 @@ except FileNotFoundError:
 str_len = max([len(c) for c in df.columns])
 for c in df.columns:
     null_percentage_this_col = 100 * df[c].isnull().sum() // len(df[c])
-    print(c.rjust(str_len), null_percentage_this_col, '% null')
+    if null_percentage_this_col:
+        print(c.rjust(str_len), null_percentage_this_col, '% null')
 
 df['percentage_columns_null'] = (100 * df.isnull().sum(axis=1) / df.shape[1]).astype(int)
 df['TARGET'] = df['TARGET'].replace(np.NaN, 'nan')
 
 df_w_target = df[df['TARGET'] != 'nan']
+df_w_target.loc[:, 'TARGET'] = df_w_target.loc[:, 'TARGET'].astype(int)
 
 sns.histplot(data=df, x="percentage_columns_null", hue="TARGET", multiple="stack", bins=38)
 plt.title('Number of individuals per null_columns')
@@ -54,13 +63,38 @@ plt.show()
 # %%
 X = df_w_target.loc[:, df_w_target.isnull().sum(axis=0) == 0].drop(columns=['TARGET', 'percentage_columns_null'])
 y = df_w_target.loc[:, 'TARGET'].astype(int)
-
+print('df w target shape')
 print(X.shape, y.shape)
 
 # %%
 
-sm = SMOTE(random_state=42)
+sm = SMOTE(random_state=0)
 X_sm, y_sm = sm.fit_resample(X, y)
+print('shape after smote')
+print(X_sm.shape, y_sm.shape)
+
+# %%
+
+n_components = 4
+acp = PCA(n_components=n_components)
+acp.fit(X)
+
+X_acp = pd.DataFrame(acp.transform(X))
+X_sm_acp = pd.DataFrame(acp.transform(X_sm))
+X_acp.loc[:, 'TARGET'] = y.astype(int)
+X_sm_acp.loc[:, 'TARGET'] = y_sm.astype(int)
+
+for i in range(n_components - 1):
+    for j in range(i + 1, n_components):
+        f, (ax1, ax2) = plt.subplots(2, 1)
+        f.suptitle('Visualisation des individus sur axes de l\'ACP' + str(i) + ' & ' + str(j))
+
+        sns.scatterplot(data=X_acp, x=i, y=j, hue='TARGET', ax=ax1)
+        ax1.set_title('avant SMOTE')
+
+        sns.scatterplot(data=X_sm_acp, x=i, y=j, hue='TARGET', ax=ax2)
+        ax2.set_title('après SMOTE')
+        plt.show()
 
 # %%
 f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
@@ -83,44 +117,93 @@ plt.show()
 models = dict()
 
 
-def train_and_predict(smote_state, model):
+def train_and_predict(use_smote, model):
     model_name = model.__str__().split('(')[0]
-    print(model_name, smote_state)
-    my_X, my_y = (X, y) if smote_state == 'without SMOTE' else (X_sm, y_sm)
+    smote_name = 'with SMOTE' if use_smote else 'without SMOTE'
+    print(model_name, ', using smote :', use_smote)
+    my_X, my_y = (X_sm, y_sm) if use_smote else (X, y)
     X_train, X_test, y_train, y_test = train_test_split(my_X, my_y, test_size=0.2, random_state=0)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
     accuracy = accuracy_score(y_test, predictions)
     recall = recall_score(y_test, predictions)
+    f2_score = fbeta_score(y_test, predictions, beta=2)
+    f1_score = fbeta_score(y_test, predictions, beta=1)
 
-    print(f'Accuracy = {accuracy:.2f}\nRecall = {recall:.2f}\n')
+    print(f'Accuracy = {accuracy:.2f}\nRecall = {recall:.2f}\nF1 = {f1_score:.2f}\nF2 = {f2_score:.2f}\n')
     cm = confusion_matrix(y_test, predictions)
     plt.figure(figsize=(8, 6))
-    plt.title('Confusion Matrix ' + model_name + ' ' + smote_state)
+    plt.title('Confusion Matrix ' + model_name + ' ' + smote_name)
     sns.heatmap(cm, annot=True, cmap='Blues')
     plt.show()
 
-    models[model_name + ' ' + smote_state] = model
+    models[model_name + ' ' + smote_name] = model
 
 
 # %%
 
 lr = LogisticRegression(random_state=0)
-train_and_predict('without SMOTE', lr)
+train_and_predict(use_smote=False, model=lr)
 
 # %%
 
 lr = LogisticRegression(random_state=0)
-train_and_predict('with SMOTE', lr)
+train_and_predict(use_smote=True, model=lr)
 
 # %%
 
 dt = DecisionTreeClassifier(random_state=0)
-train_and_predict('without SMOTE', dt)
+train_and_predict(use_smote=False, model=dt)
 
 # %%
 
 dt = DecisionTreeClassifier(random_state=0)
-train_and_predict('with SMOTE', dt)
+train_and_predict(use_smote=True, model=dt)
+print(X_sm.columns[np.argsort(dt.feature_importances_)[::-1][:20]])
+
+# %%
+
+pickle.dump(models, open('models', 'wb'))
+
+# %%
+cm_gender = confusion_matrix(df_w_target['TARGET'].astype(int), df_w_target['CODE_GENDER'])
+plt.figure(figsize=(8, 6))
+plt.title('Confusion Matrix GENDER')
+sns.heatmap(cm_gender, annot=True, fmt="d", cmap='Blues')
+plt.show()
+
+# %%
+sns.histplot(data=df_w_target, x="CODE_GENDER", hue="TARGET",
+             multiple="fill", bins=2, binwidth=.4)
+plt.show()
+
+# %%
+cm_own_car = confusion_matrix(df_w_target['TARGET'].astype(int), df_w_target['FLAG_OWN_CAR'])
+plt.figure(figsize=(8, 6))
+plt.title('Confusion Matrix FLAG OWN CAR')
+sns.heatmap(cm_own_car, annot=True, fmt="d", cmap='Blues')
+plt.show()
+
+# %%
+df_w_target.loc[:, 'FLAG_OWN_CAR'] = df_w_target.loc[:, 'FLAG_OWN_CAR'].astype(int).astype(str)
+
+f, (ax1, ax2) = plt.subplots(1, 2)
+f.suptitle('Distribution of individuals split by car owning')
+sns.histplot(data=df_w_target, x="FLAG_OWN_CAR", hue="TARGET",
+             discrete=True, ax=ax1, multiple='stack', shrink=0.9)
+ax1.set_title('Number of individuals')
+ax2.set_title('Proportion of individuals')
+ax1.set_ylabel('')
+sns.histplot(data=df_w_target, x="FLAG_OWN_CAR", hue="TARGET",
+             discrete=True, multiple='fill', shrink=0.9, ax=ax2)
+ax2.set_title('Proportion of individuals')
+ax2.set_ylabel('')
+plt.show()
+
+# %%
+
+age = (-X_sm['DAYS_BIRTH'] / 365.25).rename('AGE')
+sns.displot(x=age, kind="kde", hue=y_sm, fill=True)
+plt.show()
 
 # %%

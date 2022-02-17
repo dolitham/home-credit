@@ -20,11 +20,6 @@ import pandas as pd
 import gc
 import time
 from contextlib import contextmanager
-from lightgbm import LGBMClassifier
-from sklearn.metrics import roc_auc_score  # , roc_curve
-from sklearn.model_selection import KFold, StratifiedKFold
-import matplotlib.pyplot as plt
-import seaborn as sns
 import warnings
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -75,6 +70,10 @@ def application_train_test(num_rows=None, nan_as_category=False):
     return df
 
 
+def add_count_to_aggregations(aggregations):
+    return {key: value + ['count'] for (key, value) in aggregations.items()}
+
+
 # Preprocess bureau.csv and bureau_balance.csv
 def bureau_and_balance(num_rows=None, nan_as_category=True):
     bureau = pd.read_csv('input/bureau.csv', nrows=num_rows)
@@ -86,7 +85,7 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     bb_aggregations = {'MONTHS_BALANCE': ['min', 'max', 'size']}
     for col in bb_cat:
         bb_aggregations[col] = ['mean']
-    bb_agg = bb.groupby('SK_ID_BUREAU').agg(bb_aggregations)
+    bb_agg = bb.groupby('SK_ID_BUREAU').agg(add_count_to_aggregations(bb_aggregations))
     bb_agg.columns = pd.Index([e[0] + "_" + e[1].upper() for e in bb_agg.columns.tolist()])
     bureau = bureau.join(bb_agg, how='left', on='SK_ID_BUREAU')
     bureau.drop(['SK_ID_BUREAU'], axis=1, inplace=True)
@@ -117,18 +116,18 @@ def bureau_and_balance(num_rows=None, nan_as_category=True):
     for cat in bb_cat:
         cat_aggregations[cat + "_MEAN"] = ['mean']
 
-    bureau_agg = bureau.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    bureau_agg = bureau.groupby('SK_ID_CURR').agg(add_count_to_aggregations({**num_aggregations, **cat_aggregations}))
     bureau_agg.columns = pd.Index(['BURO_' + e[0] + "_" + e[1].upper() for e in bureau_agg.columns.tolist()])
     # Bureau: Active credits - using only numerical aggregations
     active = bureau[bureau['CREDIT_ACTIVE_Active'] == 1]
-    active_agg = active.groupby('SK_ID_CURR').agg(num_aggregations)
+    active_agg = active.groupby('SK_ID_CURR').agg(add_count_to_aggregations(num_aggregations))
     active_agg.columns = pd.Index(['ACTIVE_' + e[0] + "_" + e[1].upper() for e in active_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(active_agg, how='left', on='SK_ID_CURR')
     del active, active_agg
     gc.collect()
     # Bureau: Closed credits - using only numerical aggregations
     closed = bureau[bureau['CREDIT_ACTIVE_Closed'] == 1]
-    closed_agg = closed.groupby('SK_ID_CURR').agg(num_aggregations)
+    closed_agg = closed.groupby('SK_ID_CURR').agg(add_count_to_aggregations(num_aggregations))
     closed_agg.columns = pd.Index(['CLOSED_' + e[0] + "_" + e[1].upper() for e in closed_agg.columns.tolist()])
     bureau_agg = bureau_agg.join(closed_agg, how='left', on='SK_ID_CURR')
     del closed, closed_agg, bureau
@@ -147,7 +146,7 @@ def previous_applications(num_rows=None, nan_as_category=True):
     prev['DAYS_LAST_DUE'].replace(365243, np.nan, inplace=True)
     prev['DAYS_TERMINATION'].replace(365243, np.nan, inplace=True)
     # Add feature: value ask / value received percentage
-    prev['APP_CREDIT_PERC'] = prev['AMT_APPLICATION'] / prev['AMT_CREDIT']
+    prev['APP_CREDIT_PERC'] = (prev['AMT_APPLICATION'] / prev['AMT_CREDIT'].replace(0, np.NaN)).replace(np.inf, np.NaN)
     # Previous applications numeric features
     num_aggregations = {
         'AMT_ANNUITY': ['min', 'max', 'mean'],
@@ -166,16 +165,16 @@ def previous_applications(num_rows=None, nan_as_category=True):
     for cat in cat_cols:
         cat_aggregations[cat] = ['mean']
 
-    prev_agg = prev.groupby('SK_ID_CURR').agg({**num_aggregations, **cat_aggregations})
+    prev_agg = prev.groupby('SK_ID_CURR').agg(add_count_to_aggregations({**num_aggregations, **cat_aggregations}))
     prev_agg.columns = pd.Index(['PREV_' + e[0] + "_" + e[1].upper() for e in prev_agg.columns.tolist()])
     # Previous Applications: Approved Applications - only numerical features
     approved = prev[prev['NAME_CONTRACT_STATUS_Approved'] == 1]
-    approved_agg = approved.groupby('SK_ID_CURR').agg(num_aggregations)
+    approved_agg = approved.groupby('SK_ID_CURR').agg(add_count_to_aggregations(num_aggregations))
     approved_agg.columns = pd.Index(['APPROVED_' + e[0] + "_" + e[1].upper() for e in approved_agg.columns.tolist()])
     prev_agg = prev_agg.join(approved_agg, how='left', on='SK_ID_CURR')
     # Previous Applications: Refused Applications - only numerical features
     refused = prev[prev['NAME_CONTRACT_STATUS_Refused'] == 1]
-    refused_agg = refused.groupby('SK_ID_CURR').agg(num_aggregations)
+    refused_agg = refused.groupby('SK_ID_CURR').agg(add_count_to_aggregations(num_aggregations))
     refused_agg.columns = pd.Index(['REFUSED_' + e[0] + "_" + e[1].upper() for e in refused_agg.columns.tolist()])
     prev_agg = prev_agg.join(refused_agg, how='left', on='SK_ID_CURR')
     del refused, refused_agg, approved, approved_agg, prev
@@ -196,7 +195,7 @@ def pos_cash(num_rows=None, nan_as_category=True):
     for cat in cat_cols:
         aggregations[cat] = ['mean']
 
-    pos_agg = pos.groupby('SK_ID_CURR').agg(aggregations)
+    pos_agg = pos.groupby('SK_ID_CURR').agg(add_count_to_aggregations(aggregations))
     pos_agg.columns = pd.Index(['POS_' + e[0] + "_" + e[1].upper() for e in pos_agg.columns.tolist()])
     # Count pos cash accounts
     pos_agg['POS_COUNT'] = pos.groupby('SK_ID_CURR').size()
@@ -210,7 +209,7 @@ def installments_payments(num_rows=None, nan_as_category=True):
     ins = pd.read_csv('input/installments_payments.csv', nrows=num_rows)
     ins, cat_cols = one_hot_encoder(ins, nan_as_category=nan_as_category)
     # Percentage and difference paid in each installment (amount paid and installment value)
-    ins['PAYMENT_PERC'] = ins['AMT_PAYMENT'] / ins['AMT_INSTALMENT']
+    ins['PAYMENT_PERC'] = (ins['AMT_PAYMENT'] / ins['AMT_INSTALMENT'].replace(0, np.NaN)).replace(np.inf, np.NaN)
     ins['PAYMENT_DIFF'] = ins['AMT_INSTALMENT'] - ins['AMT_PAYMENT']
     # Days past due and days before due (no negative values)
     ins['DPD'] = ins['DAYS_ENTRY_PAYMENT'] - ins['DAYS_INSTALMENT']
@@ -230,7 +229,7 @@ def installments_payments(num_rows=None, nan_as_category=True):
     }
     for cat in cat_cols:
         aggregations[cat] = ['mean']
-    ins_agg = ins.groupby('SK_ID_CURR').agg(aggregations)
+    ins_agg = ins.groupby('SK_ID_CURR').agg(add_count_to_aggregations(aggregations))
     ins_agg.columns = pd.Index(['INSTAL_' + e[0] + "_" + e[1].upper() for e in ins_agg.columns.tolist()])
     # Count installments accounts
     ins_agg['INSTAL_COUNT'] = ins.groupby('SK_ID_CURR').size()
@@ -245,7 +244,7 @@ def credit_card_balance(num_rows=None, nan_as_category=True):
     cc, cat_cols = one_hot_encoder(cc, nan_as_category=nan_as_category)
     # General aggregations
     cc.drop(['SK_ID_PREV'], axis=1, inplace=True)
-    cc_agg = cc.groupby('SK_ID_CURR').agg(['min', 'max', 'mean', 'sum', 'var'])
+    cc_agg = cc.groupby('SK_ID_CURR').agg(['min', 'max', 'mean', 'sum', 'var', 'count'])
     cc_agg.columns = pd.Index(['CC_' + e[0] + "_" + e[1].upper() for e in cc_agg.columns.tolist()])
     # Count credit card lines
     cc_agg['CC_COUNT'] = cc.groupby('SK_ID_CURR').size()
@@ -366,12 +365,25 @@ def preprocess_data(debug=False):
         df = df.join(cc, how='left', on='SK_ID_CURR')
         del cc
         gc.collect()
-    return df
+    return switch_count_to_missing_data(df)
     # with timer("Run LightGBM with kfold"):
     #    kfold_lightgbm(df, num_folds=10, stratified=False, debug=debug)
 
 
+keep_count = ['INSTAL_COUNT', 'CC_COUNT', 'POS_COUNT']
+
+
+def switch_count_to_missing_data(df):
+    count_to_bool_rename_dict = {}
+
+    for col in df.columns:
+        if (col.endswith('_COUNT')) and (col not in keep_count):
+            df.loc[:, col] = (df.loc[:, col].fillna(0) == 0).astype(int)
+            count_to_bool_rename_dict[col] = col[:-5] + 'MISSING'
+
+    return df.rename(columns=count_to_bool_rename_dict).fillna(0)
+
+
 if __name__ == "__main__":
-    submission_file_name = "submission_kernel02.csv"
     with timer("Full model run"):
         df = preprocess_data()

@@ -1,5 +1,8 @@
 /input
+/exclude
 venv
 *.pyc
 .DS_Store
 .env
+.idea
+df_backup.csv
