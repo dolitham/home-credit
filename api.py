@@ -12,8 +12,8 @@ class DummyList(flask_restful.Resource):
 
     @staticmethod
     def get():
-        parameter = flask.request.args.get('parameter')
-        return json.loads({'coucou': parameter, 'hello': 'yellow'})
+        client_id = flask.request.args.get('client_id')
+        return json.loads(json.dumps({'client_id': client_id, 'hello': 'coucou'}))
 
 
 api.add_resource(DummyList, "/list")

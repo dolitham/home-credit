@@ -1,6 +1,7 @@
-/input
+input
 /exclude
 venv
+sandbox.py
 *.pyc
 .DS_Store
 .env

@@ -1,5 +1,3 @@
-import pickle
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -10,9 +8,9 @@ from sklearn.metrics import accuracy_score, recall_score, confusion_matrix, fbet
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.decomposition import PCA
-from kaggle_kernel import preprocess_data
-from kaggle_kernel import timer
+from kaggle_kernel import preprocess_data, timer
 import warnings
+import pickle
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 pd.set_option('mode.chained_assignment', None)
@@ -23,14 +21,37 @@ filename = 'df.csv'
 
 try:
     with timer('fetching data'):
-        df = pd.read_csv(filename, index_col=0).drop(columns=['index'], errors='ignore')
+        df = pd.read_csv(filename, index_col=0)
+        print('df shape', df.shape)
+        df = df.drop(columns=['index'], errors='ignore')
         print('df shape', df.shape)
 except FileNotFoundError:
     df = preprocess_data()
+    print('df shape', df.shape)
+    df = df.drop(columns=['index'], errors='ignore')
+    print('df shape', df.shape)
     with(timer('saving data')):
         df.to_csv(filename, index=True)
 
 # %%
+
+columns = ['TOTALAREA_MODE', 'EMERGENCYSTATE_MODE_No', 'FLAG_OWN_CAR',
+       'CODE_GENDER', 'OWN_CAR_AGE', 'CNT_FAM_MEMBERS', 'EXT_SOURCE_2',
+       'EXT_SOURCE_3', 'NAME_FAMILY_STATUS_Civil marriage',
+       'NAME_FAMILY_STATUS_Married', 'EMERGENCYSTATE_MODE_Yes',
+       'NAME_EDUCATION_TYPE_Secondary / secondary special', 'FLAG_EMP_PHONE',
+       'NAME_EDUCATION_TYPE_Incomplete higher',
+       'NAME_EDUCATION_TYPE_Higher education',
+       'WALLSMATERIAL_MODE_Stone, brick', 'PREV_NAME_YIELD_GROUP_high_MEAN',
+       'BURO_AMT_CREDIT_MAX_OVERDUE_MEAN', 'CNT_CHILDREN',
+       'WALLSMATERIAL_MODE_Block', 'DAYS_BIRTH'] + ['TARGET']
+
+df = df[columns]
+
+#%%
+df['CNT_FAM_MEMBERS'] = df['CNT_FAM_MEMBERS'].astype(int)
+
+#%%
 
 str_len = max([len(c) for c in df.columns])
 for c in df.columns:
@@ -142,8 +163,8 @@ def train_and_predict(use_smote, model):
 
 # %%
 
-lr = LogisticRegression(random_state=0)
-train_and_predict(use_smote=False, model=lr)
+# lr = LogisticRegression(random_state=0)
+# train_and_predict(use_smote=False, model=lr)
 
 # %%
 
@@ -152,8 +173,8 @@ train_and_predict(use_smote=True, model=lr)
 
 # %%
 
-dt = DecisionTreeClassifier(random_state=0)
-train_and_predict(use_smote=False, model=dt)
+# dt = DecisionTreeClassifier(random_state=0)
+# train_and_predict(use_smote=False, model=dt)
 
 # %%
 
@@ -206,4 +227,31 @@ age = (-X_sm['DAYS_BIRTH'] / 365.25).rename('AGE')
 sns.displot(x=age, kind="kde", hue=y_sm, fill=True)
 plt.show()
 
-# %%
+#%%
+
+X_sm['CNT_FAM_MEMBERS'] = X_sm['CNT_FAM_MEMBERS'].astype(int)
+X_sm['DAYS_BIRTH'] = X_sm['DAYS_BIRTH'].astype(float)
+
+#%%
+
+nb_most_important_columns = 20
+index_most_important_columns = np.argsort(dt.feature_importances_)[::-1][:nb_most_important_columns]
+most_important_columns = X_sm.columns[index_most_important_columns]
+feature_importance = dt.feature_importances_[index_most_important_columns]
+
+for col, importance in zip(most_important_columns, feature_importance):
+
+    f = plt.figure(figsize=(12, 9))
+    if X_sm[col].dtype == float:
+        sns.displot(x=X_sm[col], kind='kde', hue=y_sm, multiple="layer")
+    else:
+        sns.displot(x=X_sm[col], kind='hist', shrink=0.8, hue=y_sm, fill=True, multiple="dodge", stat='probability', discrete=True)
+    plt.title(f'importance = {importance:.4f}', y=1.0, pad=-14)
+    plt.show()
+
+
+#%%
+from sklearn.tree import DecisionTreeRegressor, plot_tree
+
+dtreg = DecisionTreeRegressor(random_state=0)
+train_and_predict(use_smote=True, model=dtreg)

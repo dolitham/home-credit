@@ -9,24 +9,7 @@ import pandas as pd
 pd.set_option("display.max_rows", 999)
 pd.set_option("display.max_columns", 999)
 
-df = pd.read_csv('WHS8_110.csv')
-
-new_columns = {
-    'Country': 'country'
-}
-
-df.columns = df.iloc[0].values
-df = df[1:]
-df = df.fillna(0).copy()
-df.columns = df.columns.astype(str)
-df.columns = [col.replace('.0', '') for col in df.columns]
-df.rename(columns=new_columns, inplace=True)
-
-# df_country = df.head(30)
-# df_year = df.head(30)
-
 app = dash.Dash()
-
 server = app.server
 
 app.layout = html.Div(
@@ -72,7 +55,7 @@ app.layout = html.Div(
     ]
 )
 
-application_train = pd.read_csv('input/' + 'application_train.csv')
+application_train = pd.read_csv('application_train_extract.csv')
 
 width_income_group = 20000
 width_income_group_k = int(width_income_group // 1000)
