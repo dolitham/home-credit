@@ -89,6 +89,7 @@ def test_chart(country):
     datapoints = {'data': [go.Bar(x=fail['income_group'], y=fail['nb_loans']), go.Bar(x=success['income_group'], y=success['nb_loans'])],
                   'layout': dict(legend_title_text="Status")}
     return datapoints
+
 #%%
 
 if __name__ == '__main__':
