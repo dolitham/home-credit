@@ -255,3 +255,29 @@ from sklearn.tree import DecisionTreeRegressor, plot_tree
 
 dtreg = DecisionTreeRegressor(random_state=0)
 train_and_predict(use_smote=True, model=dtreg)
+
+#%%
+
+import time
+t0 = time.time()
+predictions = dtreg.predict(X_sm.iloc[0:1])
+print(time.time() - t0)
+
+#%%
+from sklearn.ensemble import RandomForestRegressor
+
+rf = RandomForestRegressor(random_state=0)
+train_and_predict(use_smote=True, model=rf)
+
+#%%
+
+import time
+t0 = time.time()
+predictions = rf.predict(X_sm.iloc[0:1])
+print(time.time() - t0)
+
+#%%
+sns.displot(x=X['EXT_SOURCE_3'], kind='kde', hue=y, multiple="layer")
+plt.show()
+
+
