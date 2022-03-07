@@ -2,11 +2,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import re
 from imblearn.over_sampling import SMOTE
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, recall_score, confusion_matrix, fbeta_score
+from sklearn.metrics import accuracy_score, recall_score, confusion_matrix, fbeta_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+import lightgbm as lgb
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.decomposition import PCA
 from kaggle_kernel import preprocess_data, timer
 import warnings
@@ -36,22 +40,22 @@ except FileNotFoundError:
 # %%
 
 columns = ['TOTALAREA_MODE', 'EMERGENCYSTATE_MODE_No', 'FLAG_OWN_CAR',
-       'CODE_GENDER', 'OWN_CAR_AGE', 'CNT_FAM_MEMBERS', 'EXT_SOURCE_2',
-       'EXT_SOURCE_3', 'NAME_FAMILY_STATUS_Civil marriage',
-       'NAME_FAMILY_STATUS_Married', 'EMERGENCYSTATE_MODE_Yes',
-       'NAME_EDUCATION_TYPE_Secondary / secondary special', 'FLAG_EMP_PHONE',
-       'NAME_EDUCATION_TYPE_Incomplete higher',
-       'NAME_EDUCATION_TYPE_Higher education',
-       'WALLSMATERIAL_MODE_Stone, brick', 'PREV_NAME_YIELD_GROUP_high_MEAN',
-       'BURO_AMT_CREDIT_MAX_OVERDUE_MEAN', 'CNT_CHILDREN',
-       'WALLSMATERIAL_MODE_Block', 'DAYS_BIRTH'] + ['TARGET']
+           'CODE_GENDER', 'OWN_CAR_AGE', 'CNT_FAM_MEMBERS', 'EXT_SOURCE_2',
+           'EXT_SOURCE_3', 'NAME_FAMILY_STATUS_Civil marriage',
+           'NAME_FAMILY_STATUS_Married', 'EMERGENCYSTATE_MODE_Yes',
+           'NAME_EDUCATION_TYPE_Secondary / secondary special', 'FLAG_EMP_PHONE',
+           'NAME_EDUCATION_TYPE_Incomplete higher',
+           'NAME_EDUCATION_TYPE_Higher education',
+           'WALLSMATERIAL_MODE_Stone, brick', 'PREV_NAME_YIELD_GROUP_high_MEAN',
+           'BURO_AMT_CREDIT_MAX_OVERDUE_MEAN', 'CNT_CHILDREN',
+           'WALLSMATERIAL_MODE_Block', 'DAYS_BIRTH'] + ['TARGET']
 
-df = df[columns]
+df = df.set_index('SK_ID_CURR')[columns]
 
-#%%
+# %%
 df['CNT_FAM_MEMBERS'] = df['CNT_FAM_MEMBERS'].astype(int)
 
-#%%
+# %%
 
 str_len = max([len(c) for c in df.columns])
 for c in df.columns:
@@ -136,50 +140,52 @@ plt.show()
 # %%
 
 models = dict()
+accuracy_results = dict()
+recall_results = dict()
+f1_score_results = dict()
+f2_score_results = dict()
+roc_auc_results = dict()
 
 
 def train_and_predict(use_smote, model):
-    model_name = model.__str__().split('(')[0]
-    smote_name = 'with SMOTE' if use_smote else 'without SMOTE'
-    print(model_name, ', using smote :', use_smote)
-    my_X, my_y = (X_sm, y_sm) if use_smote else (X, y)
-    X_train, X_test, y_train, y_test = train_test_split(my_X, my_y, test_size=0.2, random_state=0)
-    model.fit(X_train, y_train)
-    predictions = model.predict(X_test)
-    accuracy = accuracy_score(y_test, predictions)
-    recall = recall_score(y_test, predictions)
-    f2_score = fbeta_score(y_test, predictions, beta=2)
-    f1_score = fbeta_score(y_test, predictions, beta=1)
+    id_model = model.__str__().split('(')[0] + ' with SMOTE' if use_smote else ' without SMOTE'
+    with timer(id_model):
+        my_X, my_y = (X_sm, y_sm) if use_smote else (X, y)
+        my_X = my_X.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x)).drop(columns=['SK_ID_CURR'], errors='ignore')
+        X_train, X_test, y_train, y_test = train_test_split(my_X, my_y, test_size=0.2, random_state=0)
+        model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+        accuracy_results[id_model] = accuracy_score(y_test, predictions)
+        recall_results[id_model] = recall_score(y_test, predictions)
+        f1_score_results[id_model] = fbeta_score(y_test, predictions, beta=2)
+        f2_score_results[id_model] = fbeta_score(y_test, predictions, beta=1)
+        roc_auc_results[id_model] = roc_auc_score(y_test, predictions)
 
-    print(f'Accuracy = {accuracy:.2f}\nRecall = {recall:.2f}\nF1 = {f1_score:.2f}\nF2 = {f2_score:.2f}\n')
-    cm = confusion_matrix(y_test, predictions)
-    plt.figure(figsize=(8, 6))
-    plt.title('Confusion Matrix ' + model_name + ' ' + smote_name)
-    sns.heatmap(cm, annot=True, cmap='Blues')
-    plt.show()
+        print(f'Accuracy = {accuracy_results[id_model]:.3f}'
+              f'\nRecall = {recall_results[id_model]:.3f}'
+              f'\nF1 = {f1_score_results[id_model]:.3f}'
+              f'\nF2 = {accuracy_results[id_model]:.3f}'
+              f'\nROC AUC = {roc_auc_results[id_model]:.3f}')
 
-    models[model_name + ' ' + smote_name] = model
+        cm = confusion_matrix(y_test, predictions)
+        plt.figure(figsize=(8, 6))
+        plt.title('Confusion Matrix ' + id_model)
+        sns.heatmap(cm, annot=True, cmap='Blues')
+        plt.show()
 
+        models[id_model] = model
 
-# %%
-
-# lr = LogisticRegression(random_state=0)
-# train_and_predict(use_smote=False, model=lr)
+    return predictions
 
 # %%
 
 lr = LogisticRegression(random_state=0)
-train_and_predict(use_smote=True, model=lr)
-
-# %%
-
-# dt = DecisionTreeClassifier(random_state=0)
-# train_and_predict(use_smote=False, model=dt)
+result_lr = train_and_predict(use_smote=True, model=lr)
 
 # %%
 
 dt = DecisionTreeClassifier(random_state=0)
-train_and_predict(use_smote=True, model=dt)
+result_dt = train_and_predict(use_smote=True, model=dt)
 print(X_sm.columns[np.argsort(dt.feature_importances_)[::-1][:20]])
 
 # %%
@@ -227,12 +233,12 @@ age = (-X_sm['DAYS_BIRTH'] / 365.25).rename('AGE')
 sns.displot(x=age, kind="kde", hue=y_sm, fill=True)
 plt.show()
 
-#%%
+# %%
 
 X_sm['CNT_FAM_MEMBERS'] = X_sm['CNT_FAM_MEMBERS'].astype(int)
 X_sm['DAYS_BIRTH'] = X_sm['DAYS_BIRTH'].astype(float)
 
-#%%
+# %%
 
 nb_most_important_columns = 20
 index_most_important_columns = np.argsort(dt.feature_importances_)[::-1][:nb_most_important_columns]
@@ -245,39 +251,56 @@ for col, importance in zip(most_important_columns, feature_importance):
     if X_sm[col].dtype == float:
         sns.displot(x=X_sm[col], kind='kde', hue=y_sm, multiple="layer")
     else:
-        sns.displot(x=X_sm[col], kind='hist', shrink=0.8, hue=y_sm, fill=True, multiple="dodge", stat='probability', discrete=True)
+        sns.displot(x=X_sm[col], kind='hist', shrink=0.8, hue=y_sm, fill=True, multiple="dodge", stat='probability',
+                    discrete=True)
     plt.title(f'importance = {importance:.4f}', y=1.0, pad=-14)
     plt.show()
 
+# %%
 
-#%%
-from sklearn.tree import DecisionTreeRegressor, plot_tree
+rf = RandomForestClassifier(random_state=0)
+result_rf = train_and_predict(use_smote=True, model=rf)
+pickle.dump(rf, open('rf_model', 'wb'))
 
-dtreg = DecisionTreeRegressor(random_state=0)
-train_and_predict(use_smote=True, model=dtreg)
-
-#%%
-
-import time
-t0 = time.time()
-predictions = dtreg.predict(X_sm.iloc[0:1])
-print(time.time() - t0)
-
-#%%
-from sklearn.ensemble import RandomForestRegressor
-
-rf = RandomForestRegressor(random_state=0)
-train_and_predict(use_smote=True, model=rf)
-
-#%%
-
-import time
-t0 = time.time()
-predictions = rf.predict(X_sm.iloc[0:1])
-print(time.time() - t0)
-
-#%%
+# %%
 sns.displot(x=X['EXT_SOURCE_3'], kind='kde', hue=y, multiple="layer")
 plt.show()
 
+#%%
 
+lgbm = lgb.LGBMClassifier()
+result_lgbm = train_and_predict(use_smote=True, model=lgbm)
+pickle.dump(lgbm, open('lgbm_model', 'wb'))
+
+#%%
+import time
+
+def load_model_and_predict(model_filename, prediction_input):
+    t0 = time.time()
+    model = pickle.load(open(model_filename, 'rb'))
+    prediction = model.predict(prediction_input)
+    print("{} - done in {:.2f}s".format('loading model and predicting with ' + model_filename, time.time() - t0))
+    return prediction
+
+to_predict = X_sm.iloc[0:1, :]
+print(load_model_and_predict('lgbm_model', to_predict))
+print(load_model_and_predict('rf_model', to_predict))
+
+#%%
+pickle.dump(df, open('df', 'wb'))
+
+#%%
+lgb_reg = lgb.LGBMClassifier()
+id_model = 'lgb_reg'
+my_X = X_sm
+my_y = y_sm.astype(float)
+my_X = my_X.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x)).drop(columns=['SK_ID_CURR'], errors='ignore')
+X_train, X_test, y_train, y_test = train_test_split(my_X, my_y, test_size=0.2, random_state=0)
+lgb_reg.fit(X_train, y_train)
+predictions = lgb_reg.predict(X_test)
+
+accuracy_results[id_model] = accuracy_score(y_test, predictions)
+recall_results[id_model] = recall_score(y_test, predictions)
+f1_score_results[id_model] = fbeta_score(y_test, predictions, beta=2)
+f2_score_results[id_model] = fbeta_score(y_test, predictions, beta=1)
+roc_auc_results[id_model] = roc_auc_score(y_test, predictions)

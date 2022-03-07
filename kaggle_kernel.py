@@ -29,7 +29,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 def timer(title):
     t0 = time.time()
     yield
-    print("{} - done in {:.0f}s".format(title, time.time() - t0))
+    print("{} - done in {:.0f}s\n".format(title, time.time() - t0))
 
 
 # One-hot encoding for categorical columns with get_dummies

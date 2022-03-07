@@ -1,96 +1,83 @@
-import dash
-from dash import dcc
-from dash import html
-from dash.dependencies import Input, Output
+import streamlit as st
+from app_requests import *
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-import plotly.graph_objects as go
-import pandas as pd
+#  streamlit run /Users/julie/PycharmProjects/home-credit/app.py
 
-pd.set_option("display.max_rows", 999)
-pd.set_option("display.max_columns", 999)
+# %% Init
 
-app = dash.Dash()
-server = app.server
+st.set_page_config(page_title='Prêt à dépenser', page_icon=":bank:", layout='wide', initial_sidebar_state = 'auto')
 
-app.layout = html.Div(
-    [
-        html.H1(
-            'Dummy Dashboard',
-            style={'text-align': 'center'}
-        ),
-        html.Div([
-            dcc.Dropdown(
-                id='year_selection',
-                options=[
-                    {'label': '2019', 'value': '2019'},
-                    {'label': '2018', 'value': '2018'},
-                    {'label': '2017', 'value': '2017'},
-                    {'label': '2016', 'value': '2016'},
-                    {'label': '2015', 'value': '2015'},
-                    {'label': '2014', 'value': '2014'},
-                    {'label': '2013', 'value': '2013'},
-                    {'label': '2012', 'value': '2012'}
-                ],
-                value='2019'
-            ),
-            dcc.Graph(id='bargraph'),
-            dcc.Dropdown(
-                id='country_selection',
-                options=[
-                    {'label': 'Romania', 'value': 'Romania'},
-                    {'label': 'United States of America', 'value': 'United States of America'},
-                    {'label': 'France', 'value': 'France'},
-                    {'label': 'Hungary', 'value': 'Hungary'},
-                    {'label': 'Italy', 'value': 'Italy'},
-                    {'label': 'Sudan', 'value': 'Sudan'},
-                    {'label': 'Spain', 'value': 'Spain'},
-                    {'label': 'Egypt', 'value': 'Egypt'},
-                    {'label': 'India', 'value': 'India'},
-                ],
-                value='Romania'
-            ),
-            dcc.Graph(id='linegraph'),
-        ],
-            style={'padding': 10})
-    ]
-)
+all_features = get_features_list()
+value = get_dummy_val()
 
-application_train = pd.read_csv('application_train_extract.csv')
+textbox = st.empty()  # TODO delete this
+textbox.info(value)
 
-width_income_group = 20000
-width_income_group_k = int(width_income_group // 1000)
-max_income_group = 20
-application_train['income_group'] = application_train['AMT_INCOME_TOTAL'].astype(int) // width_income_group
-application_train['income_group'] = application_train['income_group'].apply(lambda x: min(x, max_income_group))
+# %% Sidebar filtering
 
-fails = pd.DataFrame(application_train[application_train['TARGET'] == 1]['income_group'].value_counts().sort_index().rename('nb_loans'))
-fails['status'] = 'fail'
-success = pd.DataFrame(application_train[application_train['TARGET'] == 0]['income_group'].value_counts().sort_index().rename('nb_loans'))
-success['status'] = 'success'
-to_plot = pd.concat([fails, success])
+selected_features = st.sidebar.multiselect(label='Filter by :', options=all_features)
 
+filters = dict()
+active_filters = dict()
 
+for feature in selected_features:
+    feature_type, feature_values = get_possible_values(feature)
+    if feature_type == 'float64':
+        filters[feature] = st.sidebar.slider(label=feature, value=(min(feature_values), max(feature_values)))
+        if filters[feature] != (min(feature_values), max(feature_values)):
+            active_filters[feature] = (feature_type, filters[feature])
+    else:
+        filters[feature] = st.sidebar.multiselect(options=feature_values, label=feature)
+        if set(filters[feature]) not in [set(feature_values), set()]:
+            active_filters[feature] = (feature_type, filters[feature])
 
-labels = [str(width_income_group_k * x) + 'k-' + str(width_income_group_k * (x+1)) + 'k' for x in to_plot.index]
-max_income = labels[-1]
-labels = [((labels[-1].split('-')[0] + '+') if l == max_income else l)for l in labels]
-to_plot.index = labels
-to_plot = to_plot.reset_index().rename(columns={'index': 'income_group'})
+textbox.info(active_filters)
 
+# %% Content
 
-@app.callback(
-    Output('bargraph', 'figure'),
-    [Input('country_selection', 'value')]
-)
+list_client_ids = get_list_client_ids(active_filters)
 
-def test_chart(country):
-    fail = to_plot[to_plot['status'] == 'fail']
-    success = to_plot[to_plot['status'] == 'success']
-    datapoints = {'data': [go.Bar(x=fail['income_group'], y=fail['nb_loans']), go.Bar(x=success['income_group'], y=success['nb_loans'])],
-                  'layout': dict(legend_title_text="Status")}
-    return datapoints
+nb_available_clients = len(list_client_ids)
+if nb_available_clients >= 1:
+    st.write(nb_available_clients, 'client' + ('s'*(nb_available_clients>1)) + ' available')
+    index_client = st.select_slider(options=[None] + list_client_ids, label='Client ID')
+    valid_client_data = False
 
-#%%
+    if index_client is not None:
+        valid_prediction, value_prediction = get_prediction_client(int(index_client))
+        if valid_prediction:
+            st.write('prediction', value_prediction)
+        else:
+            st.write('could not predict')
 
-if __name__ == '__main__':
-    app.run_server(debug=True)
+        valid_client_data, client_data = get_client_data(index_client)
+
+    buttons = dict()
+    columns = st.columns([1, 1, 1, 1, 1])
+    for i, feature in enumerate(all_features[:5]):
+        buttons[feature] = columns[i].checkbox(feature, disabled=(feature in active_filters.keys()))
+
+    f, (ax1, ax2) = plt.subplots(1, 2)
+    for feature in {feature for feature in buttons if buttons[feature]}:
+        feature_data = get_feature_data(feature, active_filters)
+
+        st.write(feature, feature_data['feature_type'])
+
+        if feature_data['feature_type'] == 'float64':
+            sns.kdeplot(x=feature_data['feature'], hue=feature_data['TARGET'], ax=ax1)
+            ax1.set_yticklabels([])
+            if valid_client_data:
+                # noinspection PyUnboundLocalVariable
+                ax1.axvline(x=client_data[feature], color="red", ls="--", lw=2.5)
+        else:
+            sns.histplot(x=feature_data['feature'], hue=feature_data['TARGET'], ax=ax2)
+            ax2.set_yticklabels([])
+            if valid_client_data:
+                ax2.axvline(x=client_data[feature], color="red", ls="--", lw=2.5)
+
+    st.pyplot(f)
+
+else:
+    st.write('No client found')
