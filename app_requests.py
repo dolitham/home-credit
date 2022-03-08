@@ -43,8 +43,3 @@ def get_feature_data(feature, active_filters):
 
 def get_features_list():
     return json.loads(requests.get(url=url + features_list_path).json())
-
-
-def get_dummy_val():
-    response = json.loads(requests.get(url=url + dummy_path).content)
-    return response

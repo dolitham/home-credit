@@ -1,5 +1,6 @@
 input
 /exclude
+/fast_forward
 venv
 sandbox.py
 *.pyc

@@ -1,43 +1,56 @@
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import re
+import warnings
+import pickle
+import time
+
 from imblearn.over_sampling import SMOTE
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, recall_score, confusion_matrix, fbeta_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-import lightgbm as lgb
-from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestClassifier
+from lightgbm import LGBMClassifier
 from sklearn.decomposition import PCA
+
 from kaggle_kernel import preprocess_data, timer
-import warnings
-import pickle
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 pd.set_option('mode.chained_assignment', None)
 
-# %%
+#%%
+temp_directory = 'fast_forward/'
 
-filename = 'df.csv'
 
-try:
+def fast_forward_retrieve(filename):
+    return pickle.load(open(temp_directory + filename, 'rb'))
+
+
+def file_exists(filename):
+    return os.path.exists(temp_directory + filename)
+
+
+def fast_forward_save(obj, filename):
+    pickle.dump(obj, open(temp_directory + filename, 'wb'))
+
+
+#%%
+
+filename = 'df_from_kernel'
+
+if file_exists(filename):
+    df = fast_forward_retrieve(filename)
+else:
     with timer('fetching data'):
-        df = pd.read_csv(filename, index_col=0)
-        print('df shape', df.shape)
-        df = df.drop(columns=['index'], errors='ignore')
-        print('df shape', df.shape)
-except FileNotFoundError:
-    df = preprocess_data()
-    print('df shape', df.shape)
-    df = df.drop(columns=['index'], errors='ignore')
-    print('df shape', df.shape)
-    with(timer('saving data')):
-        df.to_csv(filename, index=True)
+        df = preprocess_data()
+    fast_forward_save(df, filename)
 
-# %%
+#%%
 
 columns = ['TOTALAREA_MODE', 'EMERGENCYSTATE_MODE_No', 'FLAG_OWN_CAR',
            'CODE_GENDER', 'OWN_CAR_AGE', 'CNT_FAM_MEMBERS', 'EXT_SOURCE_2',
@@ -50,12 +63,12 @@ columns = ['TOTALAREA_MODE', 'EMERGENCYSTATE_MODE_No', 'FLAG_OWN_CAR',
            'BURO_AMT_CREDIT_MAX_OVERDUE_MEAN', 'CNT_CHILDREN',
            'WALLSMATERIAL_MODE_Block', 'DAYS_BIRTH'] + ['TARGET']
 
-df = df.set_index('SK_ID_CURR')[columns]
+# df = df.set_index('SK_ID_CURR')[columns]
 
-# %%
+#%%
 df['CNT_FAM_MEMBERS'] = df['CNT_FAM_MEMBERS'].astype(int)
 
-# %%
+#%%
 
 str_len = max([len(c) for c in df.columns])
 for c in df.columns:
@@ -77,7 +90,7 @@ sns.histplot(data=df, x="percentage_columns_null", hue="TARGET", multiple="stack
 plt.title('Number of individuals per null_columns (log scale)')
 plt.show()
 
-# %%
+#%%
 
 sns.histplot((100 * df.isnull().sum(axis=0) / df.shape[0]))
 plt.xlabel('percentage null values')
@@ -85,21 +98,27 @@ plt.ylabel('columns count')
 plt.title('columns filling')
 plt.show()
 
-# %%
+#%%
 X = df_w_target.loc[:, df_w_target.isnull().sum(axis=0) == 0].drop(columns=['TARGET', 'percentage_columns_null'])
 y = df_w_target.loc[:, 'TARGET'].astype(int)
 print('df w target shape')
 print(X.shape, y.shape)
 
-# %%
+#%%
 
-sm = SMOTE(random_state=0)
-X_sm, y_sm = sm.fit_resample(X, y)
+if file_exists('fast_forward/X_sm') and file_exists('fast_forward/y_sm'):
+    X_sm, y_sm = fast_forward_retrieve('fast_forward/X_sm'), fast_forward_retrieve('fast_forward/y_sm')
+else:
+    with timer('expanding dataset with SMOTE'):
+        sm = SMOTE(random_state=0)
+        X_sm, y_sm = sm.fit_resample(X, y)
+        fast_forward_save(X_sm, 'fast_forward/X_sm')
+        fast_forward_save(y_sm, y_sm)
 print('shape after smote')
 print(X_sm.shape, y_sm.shape)
 
-# %%
-
+#%%
+"""
 n_components = 4
 acp = PCA(n_components=n_components)
 acp.fit(X)
@@ -120,8 +139,9 @@ for i in range(n_components - 1):
         sns.scatterplot(data=X_sm_acp, x=i, y=j, hue='TARGET', ax=ax2)
         ax2.set_title('après SMOTE')
         plt.show()
-
-# %%
+"""
+#%%
+# noinspection PyTypeChecker
 f, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
 f.suptitle('Nb customers in each category')
 
@@ -137,9 +157,9 @@ ax2.set_ylabel('Number of customers')
 
 plt.show()
 
-# %%
+#%%
 
-models = dict()
+models_directory = 'models/'
 accuracy_results = dict()
 recall_results = dict()
 f1_score_results = dict()
@@ -147,11 +167,20 @@ f2_score_results = dict()
 roc_auc_results = dict()
 
 
+def save_model(model):
+    pickle.dump(model, open(models_directory + model.__str__().split('(')[0], 'wb'))
+
+
+def retrieve_model(name):
+    return pickle.load(open(models_directory + name, 'rb'))
+
+
 def train_and_predict(use_smote, model):
     id_model = model.__str__().split('(')[0] + ' with SMOTE' if use_smote else ' without SMOTE'
     with timer(id_model):
         my_X, my_y = (X_sm, y_sm) if use_smote else (X, y)
-        my_X = my_X.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x)).drop(columns=['SK_ID_CURR'], errors='ignore')
+        my_X = my_X.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x)).drop(columns=['SK_ID_CURR'],
+                                                                                   errors='ignore')
         X_train, X_test, y_train, y_test = train_test_split(my_X, my_y, test_size=0.2, random_state=0)
         model.fit(X_train, y_train)
         predictions = model.predict(X_test)
@@ -173,45 +202,47 @@ def train_and_predict(use_smote, model):
         sns.heatmap(cm, annot=True, cmap='Blues')
         plt.show()
 
-        models[id_model] = model
+        save_model(model)
+
+    try:
+        print(id_model)
+        print(my_X.columns[np.argsort(model.feature_importances_)[::-1][:20]])
+    except AttributeError:
+        pass
 
     return predictions
 
-# %%
+
+#%%
 
 lr = LogisticRegression(random_state=0)
 result_lr = train_and_predict(use_smote=True, model=lr)
 
-# %%
+#%%
 
 dt = DecisionTreeClassifier(random_state=0)
 result_dt = train_and_predict(use_smote=True, model=dt)
-print(X_sm.columns[np.argsort(dt.feature_importances_)[::-1][:20]])
 
-# %%
-
-pickle.dump(models, open('models', 'wb'))
-
-# %%
+#%%
 cm_gender = confusion_matrix(df_w_target['TARGET'].astype(int), df_w_target['CODE_GENDER'])
 plt.figure(figsize=(8, 6))
 plt.title('Confusion Matrix GENDER')
 sns.heatmap(cm_gender, annot=True, fmt="d", cmap='Blues')
 plt.show()
 
-# %%
+#%%
 sns.histplot(data=df_w_target, x="CODE_GENDER", hue="TARGET",
              multiple="fill", bins=2, binwidth=.4)
 plt.show()
 
-# %%
+#%%
 cm_own_car = confusion_matrix(df_w_target['TARGET'].astype(int), df_w_target['FLAG_OWN_CAR'])
 plt.figure(figsize=(8, 6))
 plt.title('Confusion Matrix FLAG OWN CAR')
 sns.heatmap(cm_own_car, annot=True, fmt="d", cmap='Blues')
 plt.show()
 
-# %%
+#%%
 df_w_target.loc[:, 'FLAG_OWN_CAR'] = df_w_target.loc[:, 'FLAG_OWN_CAR'].astype(int).astype(str)
 
 f, (ax1, ax2) = plt.subplots(1, 2)
@@ -227,18 +258,18 @@ ax2.set_title('Proportion of individuals')
 ax2.set_ylabel('')
 plt.show()
 
-# %%
+#%%
 
 age = (-X_sm['DAYS_BIRTH'] / 365.25).rename('AGE')
 sns.displot(x=age, kind="kde", hue=y_sm, fill=True)
 plt.show()
 
-# %%
+#%%
 
 X_sm['CNT_FAM_MEMBERS'] = X_sm['CNT_FAM_MEMBERS'].astype(int)
 X_sm['DAYS_BIRTH'] = X_sm['DAYS_BIRTH'].astype(float)
 
-# %%
+#%%
 
 nb_most_important_columns = 20
 index_most_important_columns = np.argsort(dt.feature_importances_)[::-1][:nb_most_important_columns]
@@ -256,51 +287,36 @@ for col, importance in zip(most_important_columns, feature_importance):
     plt.title(f'importance = {importance:.4f}', y=1.0, pad=-14)
     plt.show()
 
-# %%
+#%%
 
 rf = RandomForestClassifier(random_state=0)
 result_rf = train_and_predict(use_smote=True, model=rf)
-pickle.dump(rf, open('rf_model', 'wb'))
 
-# %%
+#%%
 sns.displot(x=X['EXT_SOURCE_3'], kind='kde', hue=y, multiple="layer")
 plt.show()
 
 #%%
 
-lgbm = lgb.LGBMClassifier()
+lgbm = LGBMClassifier()
 result_lgbm = train_and_predict(use_smote=True, model=lgbm)
-pickle.dump(lgbm, open('lgbm_model', 'wb'))
+
 
 #%%
-import time
 
-def load_model_and_predict(model_filename, prediction_input):
+def load_model_and_predict(model_name, prediction_input):
     t0 = time.time()
-    model = pickle.load(open(model_filename, 'rb'))
+    model = retrieve_model(model_name)
     prediction = model.predict(prediction_input)
-    print("{} - done in {:.2f}s".format('loading model and predicting with ' + model_filename, time.time() - t0))
+    print("{} - done in {:.2f}s".format('loading model and predicting with ' + model_name, time.time() - t0))
     return prediction
 
+
 to_predict = X_sm.iloc[0:1, :]
-print(load_model_and_predict('lgbm_model', to_predict))
-print(load_model_and_predict('rf_model', to_predict))
+# print(load_model_and_predict('lgbm_model', to_predict))
+# print(load_model_and_predict('rf_model', to_predict))
 
 #%%
-pickle.dump(df, open('df', 'wb'))
+# pickle.dump(df, open('df', 'wb'))
 
 #%%
-lgb_reg = lgb.LGBMClassifier()
-id_model = 'lgb_reg'
-my_X = X_sm
-my_y = y_sm.astype(float)
-my_X = my_X.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x)).drop(columns=['SK_ID_CURR'], errors='ignore')
-X_train, X_test, y_train, y_test = train_test_split(my_X, my_y, test_size=0.2, random_state=0)
-lgb_reg.fit(X_train, y_train)
-predictions = lgb_reg.predict(X_test)
-
-accuracy_results[id_model] = accuracy_score(y_test, predictions)
-recall_results[id_model] = recall_score(y_test, predictions)
-f1_score_results[id_model] = fbeta_score(y_test, predictions, beta=2)
-f2_score_results[id_model] = fbeta_score(y_test, predictions, beta=1)
-roc_auc_results[id_model] = roc_auc_score(y_test, predictions)

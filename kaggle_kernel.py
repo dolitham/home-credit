@@ -71,7 +71,8 @@ def application_train_test(num_rows=None, nan_as_category=False):
 
 
 def add_count_to_aggregations(aggregations):
-    return {key: value + ['count'] for (key, value) in aggregations.items()}
+    return aggregations
+    # return {key: value + ['count'] for (key, value) in aggregations.items()}
 
 
 # Preprocess bureau.csv and bureau_balance.csv
