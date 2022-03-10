@@ -1,7 +1,6 @@
 import json
 import requests
 
-
 url = 'http://127.0.0.1:5000/'
 client_id_list_path = 'client_id_list'
 prediction_path = 'predict'

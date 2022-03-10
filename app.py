@@ -1,94 +1,114 @@
-import math
+import pickle
+import re
+import time
+from json import loads, dumps
+import random
 
-import streamlit as st
-from app_requests import *
-import matplotlib.pyplot as plt
-import seaborn as sns
+import flask
+import flask_cors
+import flask_restful
+import numpy as np
 
-#  streamlit run /Users/julie/PycharmProjects/home-credit/app.py
+app = flask.Flask(__name__)
+flask_cors.CORS(app)
+api = flask_restful.Api(app)
 
-# %% Init
+# id_column = 'SK_ID_CURR'
+df_for_model = pickle.load(open('df', 'rb'))
+df_for_model = df_for_model.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
+model = pickle.load(open('lgbm_model', 'rb'))
 
-st.set_page_config(page_title='Prêt à dépenser', page_icon=":bank:", layout='wide', initial_sidebar_state = 'auto')
 
-all_features = get_features_list()
+class PredictClient(flask_restful.Resource):
 
-textbox = st.empty()  # TODO delete this
+    @staticmethod
+    def get():
+        client_id = flask.request.args.get('client_id')
+        to_predict = df_for_model[model.feature_name_].loc[int(client_id)]
+        t0 = time.time()
+        prediction = model.predict_proba(np.array(to_predict).reshape(1, -1))
+        return {'STATUS': 'success', 'prediction': float(prediction[0][1]),
+                'runtime': "{:.2f}s".format(time.time() - t0)}
 
-# %% Sidebar filtering
 
-selected_features = st.sidebar.multiselect(label='Filter by :', options=all_features)
+class GetClientData(flask_restful.Resource):
 
-filters = dict()
-active_filters = dict()
+    @staticmethod
+    def get():
+        client_id = flask.request.args.get('client_id')
+        try:
+            client_id = int(client_id)
+        except ValueError:
+            return loads(dumps({'STATUS': 'fail', 'message': 'invalid client ID'}))
 
-for feature in selected_features:
-    feature_type, feature_values = get_possible_values(feature)
-    if feature_type == 'float64':
-        filters[feature] = st.sidebar.slider(label=feature, value=(min(feature_values), max(feature_values)))
-        if filters[feature] != (min(feature_values), max(feature_values)):
-            active_filters[feature] = (feature_type, filters[feature])
-    else:
-        filters[feature] = st.sidebar.multiselect(options=feature_values, label=feature)
-        if set(filters[feature]) not in [set(feature_values), set()]:
-            active_filters[feature] = (feature_type, filters[feature])
+        client_data_df = df_for_model[model.feature_name_].loc[int(client_id)]
 
-textbox.info(active_filters)
+        if client_data_df.shape[0] < 1:
+            return loads(dumps({'STATUS': 'fail', 'message': 'client not found'}))
 
-# %% Content
+        return {'STATUS': 'success', 'data': dumps(client_data_df.to_dict())}
 
-list_client_ids = get_list_client_ids(active_filters)
 
-nb_available_clients = len(list_client_ids)
-if nb_available_clients >= 1:
-    st.write(nb_available_clients, 'client' + ('s'*(nb_available_clients>1)) + ' matching filters found')
-    index_client = st.select_slider(options=[None] + list_client_ids, label='Select a client')
-    valid_client_data = False
+def filter_df_by_feature(df, feature, values):
+    if values[0] == 'float64':
+        feature_type, (mini, maxi) = values
+        return df[(mini <= df[feature]) & (df[feature] <= maxi)]
 
-    if index_client is not None:
-        valid_prediction, value_prediction = get_prediction_client(int(index_client))
-        if valid_prediction:
-            st.write('Bankrupcy prediction : ', '{:.2f}%'.format(100*(value_prediction)))
-        else:
-            st.write('could not predict')
+    feature_type, selected_values = values
+    return df[df[feature].isin(selected_values)]
 
-        valid_client_data, client_data = get_client_data(index_client)
 
-    buttons = dict()
+class GetClientIdList(flask_restful.Resource):
 
-    for i, feature in enumerate(all_features[:5]):
-        buttons[feature] = st.sidebar.checkbox(feature, disabled=(feature in active_filters.keys()))
+    @staticmethod
+    def get():
+        active_filters = flask.request.json
+        filtered_df = df_for_model
+        for feature in active_filters:
+            filtered_df = filter_df_by_feature(filtered_df, feature, active_filters[feature])
+        return dumps(list(filtered_df.index))
 
-    features_chosen = [feature for feature in buttons if buttons[feature]]
-    nb_features_chosen = len(features_chosen)
 
-    if len(features_chosen):
-        nb_plot_rows = int(math.ceil(nb_features_chosen / 2))
-        f, ax = plt.subplots(nb_plot_rows, 2)
-        f.set_figheight(5*nb_plot_rows)
-        f.set_figwidth(15)
+class GetSetFilter(flask_restful.Resource):
 
-        for feature_index, feature in enumerate(features_chosen):
-            index_col = feature_index % 2
-            index_row = feature_index // 2
-            this_ax = ax[index_col] if nb_plot_rows == 1 else ax[index_row][index_col]
-            feature_data = get_feature_data(feature, active_filters)
+    @staticmethod
+    def get():
+        feature = flask.request.args.get('feature')
+        if feature not in df_for_model.columns:
+            return {'STATUS': 'fail', 'message': 'Invalid feature'}
+        values = df_for_model[feature]
+        return dumps({'STATUS': 'success', 'dtype': str(values.dtype), 'values': list(set(values))})
 
-            if feature_data['feature_type'] == 'float64':
-                sns.kdeplot(x=feature_data['feature'], hue=feature_data['TARGET'], ax=this_ax)
-            else:
-                sns.histplot(x=feature_data['feature'], hue=feature_data['TARGET'], ax=this_ax,
-                             multiple="dodge", discrete=True, shrink=.8)
-                if set(feature_data['feature']) == {0, 1}:
-                    this_ax.set_xticks([0, 1], [0, 1])
 
-            this_ax.set_yticklabels([])
-            this_ax.set_title(feature)
-            if valid_client_data:
-                # noinspection PyUnboundLocalVariable
-                this_ax.axvline(x=client_data[feature], color="red", ls="--", lw=2.5)
+class GetFeaturesList(flask_restful.Resource):
 
-        st.pyplot(f)
+    @staticmethod
+    def get():
+        return dumps(list(df_for_model.columns))
 
-else:
-    st.write('No client found')
+
+class GetFeatureData(flask_restful.Resource):
+
+    @staticmethod
+    def get():
+        feature_requested = flask.request.args.get('feature')
+        active_filters = flask.request.json
+        filtered_df = df_for_model
+        for feature in active_filters:
+            filtered_df = filter_df_by_feature(filtered_df, feature, active_filters[feature])
+        feature_data = {'feature': list(filtered_df[feature_requested]),
+                        'feature_type': str(filtered_df[feature_requested].dtype),
+                        'TARGET': list(filtered_df['TARGET'])}
+        return dumps(feature_data)
+
+
+api.add_resource(GetClientData, "/client_data")
+api.add_resource(PredictClient, "/predict")
+api.add_resource(GetClientIdList, "/client_id_list")
+api.add_resource(GetFeaturesList, "/features_list")
+api.add_resource(GetSetFilter, "/feature")
+api.add_resource(GetFeatureData, "/feature_data")
+
+
+if __name__ == '__main__':
+    app.run(debug=False)
