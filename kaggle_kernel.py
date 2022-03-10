@@ -382,7 +382,10 @@ def switch_count_to_missing_data(df):
             df.loc[:, col] = (df.loc[:, col].fillna(0) == 0).astype(int)
             count_to_bool_rename_dict[col] = col[:-5] + 'MISSING'
 
-    return df.rename(columns=count_to_bool_rename_dict).fillna(0)
+    target = df['TARGET']
+    df = df.drop(columns=['TARGET'], errors='ignore').fillna(0)
+    df['TARGET'] = target
+    return df.rename(columns=count_to_bool_rename_dict)
 
 
 if __name__ == "__main__":
