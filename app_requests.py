@@ -1,7 +1,7 @@
 import json
 import requests
 
-url = 'http://127.0.0.1:5000/'
+url = 'https://dummy-julie.herokuapp.com/'
 client_id_list_path = 'client_id_list'
 prediction_path = 'predict'
 client_data_path = 'client_data'

@@ -80,7 +80,7 @@ if nb_available_clients >= 1:
                 sns.histplot(x=feature_data['feature'], hue=feature_data['TARGET'], ax=this_ax,
                              multiple="dodge", discrete=True, shrink=.8)
                 if set(feature_data['feature']) == {0, 1}:
-                    this_ax.set_xticks([0, 1], [0, 1])
+                    this_ax.set_xticks([0, 1])
 
             this_ax.set_yticklabels([])
             this_ax.set_title(feature)
