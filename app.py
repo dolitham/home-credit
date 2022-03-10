@@ -2,8 +2,6 @@ import pickle
 import re
 import time
 from json import loads, dumps
-import random
-
 import flask
 import flask_cors
 import flask_restful
@@ -17,6 +15,11 @@ api = flask_restful.Api(app)
 df_for_model = pickle.load(open('df', 'rb'))
 df_for_model = df_for_model.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
 model = pickle.load(open('lgbm_model', 'rb'))
+
+
+@app.route('/')
+def index():
+    return "<h1>Hello</h1>"
 
 
 class PredictClient(flask_restful.Resource):
