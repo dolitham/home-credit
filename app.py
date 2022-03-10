@@ -67,8 +67,9 @@ class GetClientIdList(flask_restful.Resource):
     def get():
         active_filters = flask.request.json
         filtered_df = df_for_model
-        for feature in active_filters:
-            filtered_df = filter_df_by_feature(filtered_df, feature, active_filters[feature])
+        if active_filters:
+            for feature in active_filters:
+                filtered_df = filter_df_by_feature(filtered_df, feature, active_filters[feature])
         return dumps(list(filtered_df.index))
 
 
@@ -114,4 +115,5 @@ api.add_resource(GetFeatureData, "/feature_data")
 
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=True)
+
